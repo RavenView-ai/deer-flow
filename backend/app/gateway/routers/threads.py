@@ -317,7 +317,16 @@ async def create_thread(body: ThreadCreateRequest, request: Request) -> ThreadRe
 
 @router.post("/search", response_model=list[ThreadResponse])
 async def search_threads(body: ThreadSearchRequest, request: Request) -> list[ThreadResponse]:
-    """Search and list threads from the threads_meta table."""
+    """Search and list threads from the threads_meta table.
+
+    NOTE: Migration from pre-persistence-layer deployments:
+    Threads created via LangGraph Server before this change are NOT
+    automatically indexed in threads_meta. They will not appear in
+    search results until a new run is created on them (which triggers
+    thread_meta upsert in services.py). For bulk migration, run:
+      python -m deerflow.persistence.migrate_threads_from_checkpointer
+    (migration script TBD in a follow-up PR)
+    """
     from app.gateway.deps import get_thread_meta_repo
 
     repo = get_thread_meta_repo(request)

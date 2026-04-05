@@ -54,58 +54,68 @@ class DbRunEventStore(RunEventStore):
         else:
             db_content = content
         async with self._sf() as session:
-            max_seq = await session.scalar(select(func.max(RunEventRow.seq)).where(RunEventRow.thread_id == thread_id))
-            seq = (max_seq or 0) + 1
-            row = RunEventRow(
-                thread_id=thread_id,
-                run_id=run_id,
-                event_type=event_type,
-                category=category,
-                content=db_content,
-                event_metadata=metadata,
-                seq=seq,
-                created_at=datetime.fromisoformat(created_at) if created_at else datetime.now(UTC),
-            )
-            session.add(row)
-            await session.commit()
-            await session.refresh(row)
+            async with session.begin():
+                # Use FOR UPDATE to serialize seq assignment within a thread.
+                # NOTE: with_for_update() on aggregates is a no-op on SQLite;
+                # the UNIQUE(thread_id, seq) constraint catches races there.
+                max_seq = await session.scalar(
+                    select(func.max(RunEventRow.seq))
+                    .where(RunEventRow.thread_id == thread_id)
+                    .with_for_update()
+                )
+                seq = (max_seq or 0) + 1
+                row = RunEventRow(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    event_type=event_type,
+                    category=category,
+                    content=db_content,
+                    event_metadata=metadata,
+                    seq=seq,
+                    created_at=datetime.fromisoformat(created_at) if created_at else datetime.now(UTC),
+                )
+                session.add(row)
             return self._row_to_dict(row)
 
     async def put_batch(self, events):
         if not events:
             return []
         async with self._sf() as session:
-            # Get max seq for the thread (assume all events in batch belong to same thread)
-            thread_id = events[0]["thread_id"]
-            max_seq = await session.scalar(select(func.max(RunEventRow.seq)).where(RunEventRow.thread_id == thread_id))
-            seq = max_seq or 0
-            rows = []
-            for e in events:
-                seq += 1
-                content = e.get("content", "")
-                category = e.get("category", "trace")
-                metadata = e.get("metadata")
-                content, metadata = self._truncate_trace(category, content, metadata)
-                if isinstance(content, dict):
-                    db_content = json.dumps(content, default=str, ensure_ascii=False)
-                    metadata = {**(metadata or {}), "content_is_dict": True}
-                else:
-                    db_content = content
-                row = RunEventRow(
-                    thread_id=e["thread_id"],
-                    run_id=e["run_id"],
-                    event_type=e["event_type"],
-                    category=category,
-                    content=db_content,
-                    event_metadata=metadata,
-                    seq=seq,
-                    created_at=datetime.fromisoformat(e["created_at"]) if e.get("created_at") else datetime.now(UTC),
+            async with session.begin():
+                # Get max seq for the thread (assume all events in batch belong to same thread).
+                # NOTE: with_for_update() on aggregates is a no-op on SQLite;
+                # the UNIQUE(thread_id, seq) constraint catches races there.
+                thread_id = events[0]["thread_id"]
+                max_seq = await session.scalar(
+                    select(func.max(RunEventRow.seq))
+                    .where(RunEventRow.thread_id == thread_id)
+                    .with_for_update()
                 )
-                session.add(row)
-                rows.append(row)
-            await session.commit()
-            for row in rows:
-                await session.refresh(row)
+                seq = max_seq or 0
+                rows = []
+                for e in events:
+                    seq += 1
+                    content = e.get("content", "")
+                    category = e.get("category", "trace")
+                    metadata = e.get("metadata")
+                    content, metadata = self._truncate_trace(category, content, metadata)
+                    if isinstance(content, dict):
+                        db_content = json.dumps(content, default=str, ensure_ascii=False)
+                        metadata = {**(metadata or {}), "content_is_dict": True}
+                    else:
+                        db_content = content
+                    row = RunEventRow(
+                        thread_id=e["thread_id"],
+                        run_id=e["run_id"],
+                        event_type=e["event_type"],
+                        category=category,
+                        content=db_content,
+                        event_metadata=metadata,
+                        seq=seq,
+                        created_at=datetime.fromisoformat(e["created_at"]) if e.get("created_at") else datetime.now(UTC),
+                    )
+                    session.add(row)
+                    rows.append(row)
             return [self._row_to_dict(r) for r in rows]
 
     async def list_messages(self, thread_id, *, limit=50, before_seq=None, after_seq=None):

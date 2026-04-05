@@ -257,16 +257,8 @@ async def run_agent(
                 logger.warning("Failed to flush journal for run %s", run_id, exc_info=True)
 
             # Persist token usage + convenience fields to RunStore
-            if run_manager._store is not None:
-                try:
-                    completion = journal.get_completion_data()
-                    await run_manager._store.update_run_completion(
-                        run_id,
-                        status=record.status.value,
-                        **completion,
-                    )
-                except Exception:
-                    logger.warning("Failed to persist run completion for %s", run_id, exc_info=True)
+            completion = journal.get_completion_data()
+            await run_manager.update_run_completion(run_id, status=record.status.value, **completion)
 
         # Sync title from checkpoint to threads_meta.display_name
         if thread_meta_repo is not None and checkpointer is not None:

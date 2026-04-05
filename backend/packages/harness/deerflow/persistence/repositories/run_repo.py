@@ -78,6 +78,7 @@ class RunRepository(RunStore):
         kwargs=None,
         error=None,
         created_at=None,
+        follow_up_to_run_id=None,
     ):
         now = datetime.now(UTC)
         row = RunRow(
@@ -90,6 +91,7 @@ class RunRepository(RunStore):
             metadata_json=self._safe_json(metadata) or {},
             kwargs_json=self._safe_json(kwargs) or {},
             error=error,
+            follow_up_to_run_id=follow_up_to_run_id,
             created_at=datetime.fromisoformat(created_at) if created_at else now,
             updated_at=now,
         )

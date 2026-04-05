@@ -29,6 +29,7 @@ class RunStore(abc.ABC):
         kwargs: dict[str, Any] | None = None,
         error: str | None = None,
         created_at: str | None = None,
+        follow_up_to_run_id: str | None = None,
     ) -> None: ...
 
     @abc.abstractmethod
@@ -54,6 +55,25 @@ class RunStore(abc.ABC):
 
     @abc.abstractmethod
     async def delete(self, run_id: str) -> None: ...
+
+    @abc.abstractmethod
+    async def update_run_completion(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        total_input_tokens: int = 0,
+        total_output_tokens: int = 0,
+        total_tokens: int = 0,
+        llm_call_count: int = 0,
+        lead_agent_tokens: int = 0,
+        subagent_tokens: int = 0,
+        middleware_tokens: int = 0,
+        message_count: int = 0,
+        last_ai_message: str | None = None,
+        first_human_message: str | None = None,
+        error: str | None = None,
+    ) -> None: ...
 
     @abc.abstractmethod
     async def list_pending(self, *, before: str | None = None) -> list[dict[str, Any]]: ...

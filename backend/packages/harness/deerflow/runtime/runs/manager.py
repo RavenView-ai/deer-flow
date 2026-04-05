@@ -54,6 +54,33 @@ class RunManager:
         self._lock = asyncio.Lock()
         self._store = store
 
+    async def _persist_to_store(self, record: RunRecord, *, follow_up_to_run_id: str | None = None) -> None:
+        """Best-effort persist run record to backing store."""
+        if self._store is None:
+            return
+        try:
+            await self._store.put(
+                record.run_id,
+                thread_id=record.thread_id,
+                assistant_id=record.assistant_id,
+                status=record.status.value,
+                multitask_strategy=record.multitask_strategy,
+                metadata=record.metadata or {},
+                kwargs=record.kwargs or {},
+                created_at=record.created_at,
+                follow_up_to_run_id=follow_up_to_run_id,
+            )
+        except Exception:
+            logger.warning("Failed to persist run %s to store", record.run_id, exc_info=True)
+
+    async def update_run_completion(self, run_id: str, **kwargs) -> None:
+        """Persist token usage and completion data to the backing store."""
+        if self._store is not None:
+            try:
+                await self._store.update_run_completion(run_id, **kwargs)
+            except Exception:
+                logger.warning("Failed to persist run completion for %s", run_id, exc_info=True)
+
     async def create(
         self,
         thread_id: str,
@@ -63,6 +90,7 @@ class RunManager:
         metadata: dict | None = None,
         kwargs: dict | None = None,
         multitask_strategy: str = "reject",
+        follow_up_to_run_id: str | None = None,
     ) -> RunRecord:
         """Create a new pending run and register it."""
         run_id = str(uuid.uuid4())
@@ -81,20 +109,7 @@ class RunManager:
         )
         async with self._lock:
             self._runs[run_id] = record
-        if self._store is not None:
-            try:
-                await self._store.put(
-                    run_id,
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    status=RunStatus.pending.value,
-                    multitask_strategy=multitask_strategy,
-                    metadata=metadata or {},
-                    kwargs=kwargs or {},
-                    created_at=now,
-                )
-            except Exception:
-                logger.warning("Failed to persist run %s to store", run_id, exc_info=True)
+        await self._persist_to_store(record, follow_up_to_run_id=follow_up_to_run_id)
         logger.info("Run created: run_id=%s thread_id=%s", run_id, thread_id)
         return record
 
@@ -161,6 +176,7 @@ class RunManager:
         metadata: dict | None = None,
         kwargs: dict | None = None,
         multitask_strategy: str = "reject",
+        follow_up_to_run_id: str | None = None,
     ) -> RunRecord:
         """Atomically check for inflight runs and create a new one.
 
@@ -214,21 +230,7 @@ class RunManager:
             )
             self._runs[run_id] = record
 
-        if self._store is not None:
-            try:
-                await self._store.put(
-                    run_id,
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    status=RunStatus.pending.value,
-                    multitask_strategy=multitask_strategy,
-                    metadata=metadata or {},
-                    kwargs=kwargs or {},
-                    created_at=now,
-                )
-            except Exception:
-                logger.warning("Failed to persist run %s to store", run_id, exc_info=True)
-
+        await self._persist_to_store(record, follow_up_to_run_id=follow_up_to_run_id)
         logger.info("Run created: run_id=%s thread_id=%s", run_id, thread_id)
         return record
 

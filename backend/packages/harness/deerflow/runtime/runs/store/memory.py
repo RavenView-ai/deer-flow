@@ -28,6 +28,7 @@ class MemoryRunStore(RunStore):
         kwargs=None,
         error=None,
         created_at=None,
+        follow_up_to_run_id=None,
     ):
         now = datetime.now(UTC).isoformat()
         self._runs[run_id] = {
@@ -40,6 +41,7 @@ class MemoryRunStore(RunStore):
             "metadata": metadata or {},
             "kwargs": kwargs or {},
             "error": error,
+            "follow_up_to_run_id": follow_up_to_run_id,
             "created_at": created_at or now,
             "updated_at": now,
         }
@@ -61,6 +63,14 @@ class MemoryRunStore(RunStore):
 
     async def delete(self, run_id):
         self._runs.pop(run_id, None)
+
+    async def update_run_completion(self, run_id, *, status, **kwargs):
+        if run_id in self._runs:
+            self._runs[run_id]["status"] = status
+            for key, value in kwargs.items():
+                if value is not None:
+                    self._runs[run_id][key] = value
+            self._runs[run_id]["updated_at"] = datetime.now(UTC).isoformat()
 
     async def list_pending(self, *, before=None):
         now = before or datetime.now(UTC).isoformat()

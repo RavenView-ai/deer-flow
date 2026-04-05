@@ -386,13 +386,27 @@ class RunJournal(BaseCallbackHandler):
             return
         batch = self._buffer.copy()
         self._buffer.clear()
-        loop.create_task(self._flush_async(batch))
+        task = loop.create_task(self._flush_async(batch))
+        task.add_done_callback(self._on_flush_done)
 
     async def _flush_async(self, batch: list[dict]) -> None:
         try:
             await self._store.put_batch(batch)
         except Exception:
-            logger.warning("RunJournal: failed to flush %d events", len(batch), exc_info=True)
+            logger.warning(
+                "Failed to flush %d events for run %s — returning to buffer",
+                len(batch), self.run_id, exc_info=True,
+            )
+            # Return failed events to buffer for retry on next flush
+            self._buffer = batch + self._buffer
+
+    @staticmethod
+    def _on_flush_done(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.warning("Journal flush task failed: %s", exc)
 
     def _identify_caller(self, kwargs: dict) -> str:
         for tag in kwargs.get("tags") or []:
