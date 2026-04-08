@@ -161,9 +161,12 @@ def test_protected_path_no_cookie_returns_401(client):
     assert body["detail"]["code"] == "not_authenticated"
 
 
-def test_protected_path_with_cookie_passes(client):
+def test_protected_path_with_junk_cookie_rejected(client):
+    """Junk cookie → 401. Middleware strictly validates the JWT now
+    (AUTH_TEST_PLAN test 7.5.8); it no longer silently passes bad
+    tokens through to the route handler."""
     res = client.get("/api/models", cookies={"access_token": "some-token"})
-    assert res.status_code == 200
+    assert res.status_code == 401
 
 
 def test_protected_post_no_cookie_returns_401(client):
@@ -189,16 +192,18 @@ def test_protected_patch_no_cookie(client):
     assert res.status_code == 401
 
 
-def test_put_with_cookie_passes(client):
+def test_put_with_junk_cookie_rejected(client):
+    """Junk cookie on PUT → 401 (strict JWT validation in middleware)."""
     client.cookies.set("access_token", "tok")
     res = client.put("/api/mcp/config")
-    assert res.status_code == 200
+    assert res.status_code == 401
 
 
-def test_delete_with_cookie_passes(client):
+def test_delete_with_junk_cookie_rejected(client):
+    """Junk cookie on DELETE → 401 (strict JWT validation in middleware)."""
     client.cookies.set("access_token", "tok")
     res = client.delete("/api/threads/abc")
-    assert res.status_code == 200
+    assert res.status_code == 401
 
 
 # ── Fail-closed: unknown future endpoints ─────────────────────────────────
@@ -210,7 +215,8 @@ def test_unknown_endpoint_no_cookie_returns_401(client):
     assert res.status_code == 401
 
 
-def test_unknown_endpoint_with_cookie_passes(client):
+def test_unknown_endpoint_with_junk_cookie_rejected(client):
+    """New endpoints are also protected by strict JWT validation."""
     client.cookies.set("access_token", "tok")
     res = client.get("/api/future-endpoint")
-    assert res.status_code == 200
+    assert res.status_code == 401

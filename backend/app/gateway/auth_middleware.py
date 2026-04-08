@@ -47,12 +47,23 @@ def _is_public(path: str) -> bool:
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Coarse-grained auth gate: reject requests without a valid session cookie.
+    """Strict auth gate: reject requests without a valid session.
 
-    This does NOT verify JWT signature or user existence — that is the job of
-    ``get_current_user_from_request`` in deps.py (called by ``@require_auth``).
-    The middleware only checks *presence* of the cookie so that new endpoints
-    that forget ``@require_auth`` are not completely exposed.
+    Two-stage check for non-public paths:
+
+    1. Cookie presence — return 401 NOT_AUTHENTICATED if missing
+    2. JWT validation via ``get_optional_user_from_request`` — return 401
+       TOKEN_INVALID if the token is absent, malformed, expired, or the
+       signed user does not exist / is stale
+
+    On success, stamps ``request.state.user`` and the
+    ``deerflow.runtime.user_context`` contextvar so that repository-layer
+    owner filters work downstream without every route needing a
+    ``@require_auth`` decorator. Routes that need per-resource
+    authorization (e.g. "user A cannot read user B's thread by guessing
+    the URL") should additionally use ``@require_permission(...,
+    owner_check=True)`` for explicit enforcement — but authentication
+    itself is fully handled here.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -74,18 +85,29 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        # Resolve the full user now so repository-layer owner filters
-        # can read from the contextvar. We use the "optional" flavour so
-        # middleware never raises on bad tokens — the cookie-presence
-        # check above plus the @require_auth decorator provide the
-        # strict gates. A stale/invalid token yields user=None here;
-        # the request continues without a contextvar, and any protected
-        # endpoint will still be rejected by @require_auth.
-        from app.gateway.deps import get_optional_user_from_request
+        # Strict JWT validation: reject junk/expired tokens with 401
+        # right here instead of silently passing through. This closes
+        # the "junk cookie bypass" gap (AUTH_TEST_PLAN test 7.5.8):
+        # without this, non-isolation routes like /api/models would
+        # accept any cookie-shaped string as authentication.
+        #
+        # We call the *strict* resolver so that fine-grained error
+        # codes (token_expired, token_invalid, user_not_found, …)
+        # propagate from AuthErrorCode, not get flattened into one
+        # generic code. BaseHTTPMiddleware doesn't let HTTPException
+        # bubble up, so we catch and render it as JSONResponse here.
+        #
+        # On success we stamp request.state.user and the contextvar
+        # so repository-layer owner filters work downstream without
+        # every route needing a decorator.
+        from fastapi import HTTPException
 
-        user = await get_optional_user_from_request(request)
-        if user is None:
-            return await call_next(request)
+        from app.gateway.deps import get_current_user_from_request
+
+        try:
+            user = await get_current_user_from_request(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
         request.state.user = user
         token = set_current_user(user)
