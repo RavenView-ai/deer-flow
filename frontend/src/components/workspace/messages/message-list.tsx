@@ -18,7 +18,6 @@ import { useRehypeSplitWordsIntoSpans } from "@/core/rehype";
 import type { Subtask } from "@/core/tasks";
 import { useUpdateSubtask } from "@/core/tasks/context";
 import type { AgentThreadState } from "@/core/threads";
-import { useThreadMessageEnrichment } from "@/core/threads/hooks";
 import { cn } from "@/lib/utils";
 
 import { ArtifactFileList } from "../artifacts/artifact-file-list";
@@ -48,7 +47,6 @@ export function MessageList({
   const rehypePlugins = useRehypeSplitWordsIntoSpans(thread.isLoading);
   const updateSubtask = useUpdateSubtask();
   const messages = thread.messages;
-  const { data: enrichment } = useThreadMessageEnrichment(threadId);
 
   if (thread.isThreadLoading && messages.length === 0) {
     return <MessageListSkeleton />;
@@ -61,21 +59,12 @@ export function MessageList({
         {groupMessages(messages, (group) => {
           if (group.type === "human" || group.type === "assistant") {
             return group.messages.map((msg) => {
-              // Run id and feedback are sourced from the ``/history``
-              // enrichment query (see ``useThreadMessageEnrichment``). The
-              // map is keyed by ``message.id`` so tool_call interleavings
-              // and multi-run threads map cleanly without positional math.
-              // ``feedback`` is ``undefined`` for non-eligible messages,
-              // ``null`` for eligible-but-unrated, and an object once rated.
-              const entry = msg.id ? enrichment?.get(msg.id) : undefined;
               return (
                 <MessageListItem
                   key={`${group.id}/${msg.id}`}
                   threadId={threadId}
                   message={msg}
                   isLoading={thread.isLoading}
-                  runId={entry?.run_id}
-                  feedback={entry?.feedback}
                 />
               );
             });

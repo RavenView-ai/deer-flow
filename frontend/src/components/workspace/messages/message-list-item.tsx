@@ -39,19 +39,11 @@ export function MessageListItem({
   threadId,
   message,
   isLoading,
-  threadId,
 }: {
   className?: string;
-  threadId?: string;
+  threadId: string;
   message: Message;
   isLoading?: boolean;
-  threadId: string;
-  // ``feedback`` is ``undefined`` for messages that are not feedback-eligible
-  // (non-final AI messages, humans, tool results). It is ``null`` for the
-  // final ai_message of a run that has no rating yet, and a FeedbackData
-  // object once rated. The button renders whenever the field is present.
-  feedback?: FeedbackData | null;
-  runId?: string;
 }) {
   const isHuman = message.type === "human";
   return (
@@ -80,13 +72,6 @@ export function MessageListItem({
                 ""
               }
             />
-            {feedback !== undefined && runId && threadId && (
-              <FeedbackButtons
-                threadId={threadId}
-                runId={runId}
-                initialFeedback={feedback}
-              />
-            )}
           </div>
         </MessageToolbar>
       )}
